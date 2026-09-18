@@ -245,5 +245,6 @@ cam_log.ko
 lb.ko
 kshrink_slabd.ko
 mi_t1_gpio.ko
+cam_fs.ko
 unfairmem.ko
 scene_swappiness.ko
