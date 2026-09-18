@@ -234,3 +234,4 @@ io_monitor.ko
 kshrink_slabd.ko
 crash_module.ko
 mi_t1_gpio.ko
+cam_fs.ko
