@@ -234,5 +234,3 @@ io_monitor.ko
 kshrink_slabd.ko
 crash_module.ko
 mi_t1_gpio.ko
-xiaomi_touch_klee.ko
-nt38771_touch_klee.ko
