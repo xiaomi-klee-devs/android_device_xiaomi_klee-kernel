@@ -54,7 +54,7 @@ for TARGET in system_dlkm vendor_dlkm vendor_ramdisk; do
 done
 
 # Kernel operations
-info "Copying kernel & DTB..."
+info "Copying kernel images..."
 cp "$DIST_DIR/Image.lz4" ./ || error "Failed to copy Image.lz4"
 chmod -x Image.lz4
 
@@ -94,5 +94,32 @@ git clean -f vendor_ramdisk/ >/dev/null
 # Strip the modules
 info "Stripping debug symbols from modules..."
 find . -type f -name '*.ko' -exec "$STRIP_BIN" --strip-debug {} +
+
+# DTB / DTBO
+info "Generating DTB & DTBO images..."
+MKDTIMG="${ROOT_DIR}/prebuilts/kernel-build-tools/linux-x86/bin/mkdtimg"
+if [ ! -x "$MKDTIMG" ]; then
+    MKDTIMG="$(command -v mkdtimg || true)"
+fi
+if [ -z "$MKDTIMG" ]; then
+    warn "mkdtimg not found, skipping DTB/DTBO"
+else
+    DT_DIR="${MTK_DIST_DIR}/mediatek"
+    mkdir -p dtb
+    if [ -f "$DT_DIR/xiaomi_mt6899_common.dtb" ]; then
+        "$MKDTIMG" create dtb/mt6899.dtb --page_size=2048 "$DT_DIR/xiaomi_mt6899_common.dtb" >/dev/null \
+            && info "Wrote dtb/mt6899.dtb" \
+            || error "Failed to create dtb/mt6899.dtb"
+    else
+        warn "Missing $DT_DIR/xiaomi_mt6899_common.dtb, keeping existing dtb/mt6899.dtb"
+    fi
+    if [ -f "$DT_DIR/klee.dtb" ]; then
+        "$MKDTIMG" create dtbo.img --page_size=2048 "$DT_DIR/klee.dtb" >/dev/null \
+            && info "Wrote dtbo.img" \
+            || error "Failed to create dtbo.img"
+    else
+        warn "Missing $DT_DIR/klee.dtb, keeping existing dtbo.img"
+    fi
+fi
 
 info "Operation completed successfully."
