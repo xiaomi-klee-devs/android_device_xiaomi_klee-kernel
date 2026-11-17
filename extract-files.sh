@@ -31,6 +31,7 @@ ROOT_DIR="$1"
 DIST_DIR="${ROOT_DIR}/out/dist/kernel_device_modules-6.6/mgk_64_k66_kernel_aarch64.user"
 MTK_DIST_DIR="${ROOT_DIR}/out/dist/kernel_device_modules-6.6/mgk_64_k66.user"
 CUSTOMER_MODULES_DIR="${ROOT_DIR}/out/dist/kernel_device_modules-6.6/mgk_64_k66_customer_modules_install.user"
+MERGED_UAPI_DIR="${ROOT_DIR}/out/dist/kernel_device_modules-6.6/mgk_64_k66_merged_uapi_headers.user"
 CLANG_VERISON=clang-r510928
 STRIP_BIN="${ROOT_DIR}/prebuilts/clang/host/linux-x86/${CLANG_VERISON}/bin/llvm-strip"
 
@@ -57,6 +58,15 @@ done
 info "Copying kernel images..."
 cp "$DIST_DIR/Image.lz4" ./ || error "Failed to copy Image.lz4"
 chmod -x Image.lz4
+
+# Copy merged UAPI headers
+UAPI_TAR="$MERGED_UAPI_DIR/kernel-uapi-headers.tar.gz"
+if [ -f "$UAPI_TAR" ]; then
+    info "Copying UAPI headers..."
+    cp "$UAPI_TAR" ./ || error "Failed to copy kernel-uapi-headers.tar.gz"
+else
+    warn "Missing $UAPI_TAR, skipping UAPI headers"
+fi
 
 # Copy Modules
 for TARGET in system_dlkm vendor_dlkm vendor_ramdisk; do
