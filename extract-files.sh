@@ -11,7 +11,19 @@ show_help() {
     cat <<EOF
 Usage: $0 ROOT_DIR
 
-This script copies kernel components and modules from the build output directory.
+This script copies kernel components and modules from the build output directory
+into the flat kernel structure expected by the device tree:
+
+  images/Image.lz4
+  images/mt6899.dtb
+  images/dtbo.img
+  headers/kernel-uapi-headers.tar.gz
+  modules/
+    modules.load.system
+    modules.load.vendor
+    modules.load.vendor_ramdisk
+    modules.load.recovery
+    *.ko
 
 Arguments:
   ROOT_DIR - Path to the root directory containing build outputs
@@ -26,6 +38,8 @@ if [ $# -ne 1 ]; then
 fi
 
 ROOT_DIR="$1"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+MODULES_DIR="${SCRIPT_DIR}/modules"
 
 # Config paths
 DIST_DIR="${ROOT_DIR}/out/dist/kernel_device_modules-6.6/mgk_64_k66_kernel_aarch64.user"
@@ -49,61 +63,46 @@ if [ ! -x "$STRIP_BIN" ]; then
     exit 1
 fi
 
-# Create target directories if they don't exist
-for TARGET in system_dlkm vendor_dlkm vendor_ramdisk; do
-    mkdir -p "$TARGET"
-done
+cd "$SCRIPT_DIR"
 
 # Kernel operations
 info "Copying kernel images..."
-cp "$DIST_DIR/Image.lz4" ./ || error "Failed to copy Image.lz4"
-chmod -x Image.lz4
+mkdir -p images headers
+cp "$DIST_DIR/Image.lz4" images/ || error "Failed to copy Image.lz4"
+chmod -x images/Image.lz4
 
 # Copy merged UAPI headers
 UAPI_TAR="$MERGED_UAPI_DIR/kernel-uapi-headers.tar.gz"
 if [ -f "$UAPI_TAR" ]; then
     info "Copying UAPI headers..."
-    cp "$UAPI_TAR" ./ || error "Failed to copy kernel-uapi-headers.tar.gz"
+    cp "$UAPI_TAR" headers/ || error "Failed to copy kernel-uapi-headers.tar.gz"
 else
     warn "Missing $UAPI_TAR, skipping UAPI headers"
 fi
 
-# Copy Modules
-for TARGET in system_dlkm vendor_dlkm vendor_ramdisk; do
-    info "Copying GKI modules to $TARGET..."
-    find "$DIST_DIR" -type f -name '*.ko' -exec cp {} "$TARGET/" \;
-    cp $CUSTOMER_MODULES_DIR/* $TARGET
-    find "$MTK_DIST_DIR" -type f -name '*.ko' -exec cp {} "$TARGET/" \;
-done
-
-# Remove unused modules
-info "Running git clean..."
-git clean -f system_dlkm/ >/dev/null
-git clean -f vendor_dlkm/ >/dev/null
-git clean -f vendor_ramdisk/ >/dev/null
-
-# Restore specific files
-# FILES_TO_RESTORE=(
-#     # Missing front camera
-#     vendor_dlkm/camera_dpe_isp7sp.ko
-#     vendor_dlkm/camera_eeprom_v4l2.ko
-#     vendor_dlkm/imgsensor-glue.ko
-#     vendor_dlkm/imgsensor.ko
-#     vendor_dlkm/mtk_imgsys_cmdq.ko
-#     vendor_dlkm/mtk_imgsys_isp7sp.ko
-#     # I honestly don't know
-#     vendor_ramdisk/rpmb-mtk.ko
-#     vendor_ramdisk/ufs-mediatek-dbg.ko
-#     vendor_ramdisk/ufs-mediatek-mod.ko
-# )
-# info "Restoring tracked files..."
-# for f in "${FILES_TO_RESTORE[@]}"; do
-#      git restore "$f" || warn "Failed to restore $f"
-# done
+# Copy modules (flat)
+info "Copying kernel modules to modules/..."
+mkdir -p "$MODULES_DIR"
+rm -f "$MODULES_DIR"/*.ko
+find "$DIST_DIR" -type f -name '*.ko' -exec cp -f {} "$MODULES_DIR/" \;
+find "$CUSTOMER_MODULES_DIR" -maxdepth 1 -type f -name '*.ko' -exec cp -f {} "$MODULES_DIR/" \;
+find "$MTK_DIST_DIR" -type f -name '*.ko' -exec cp -f {} "$MODULES_DIR/" \;
 
 # Strip the modules
 info "Stripping debug symbols from modules..."
-find . -type f -name '*.ko' -exec "$STRIP_BIN" --strip-debug {} +
+find "$MODULES_DIR" -maxdepth 1 -type f -name '*.ko' -exec "$STRIP_BIN" --strip-debug {} +
+
+# Keep module load lists consistent with the modules we actually ship
+info "Pruning module load lists..."
+for l in "$MODULES_DIR"/modules.load.*; do
+    [ -f "$l" ] || continue
+    tmp="$(mktemp)"
+    while IFS= read -r m || [ -n "$m" ]; do
+        [ -z "$m" ] && continue
+        [ -f "$MODULES_DIR/$m" ] && printf '%s\n' "$m" >> "$tmp"
+    done < "$l"
+    mv "$tmp" "$l"
+done
 
 # DTB / DTBO
 info "Generating DTB & DTBO images..."
@@ -115,20 +114,20 @@ if [ -z "$MKDTIMG" ]; then
     warn "mkdtimg not found, skipping DTB/DTBO"
 else
     DT_DIR="${MTK_DIST_DIR}/mediatek"
-    mkdir -p dtb
+    mkdir -p images
     if [ -f "$DT_DIR/xiaomi_mt6899_common.dtb" ]; then
-        "$MKDTIMG" create dtb/mt6899.dtb --page_size=2048 "$DT_DIR/xiaomi_mt6899_common.dtb" >/dev/null \
-            && info "Wrote dtb/mt6899.dtb" \
-            || error "Failed to create dtb/mt6899.dtb"
+        "$MKDTIMG" create images/mt6899.dtb --page_size=2048 "$DT_DIR/xiaomi_mt6899_common.dtb" >/dev/null \
+            && info "Wrote images/mt6899.dtb" \
+            || error "Failed to create images/mt6899.dtb"
     else
-        warn "Missing $DT_DIR/xiaomi_mt6899_common.dtb, keeping existing dtb/mt6899.dtb"
+        warn "Missing $DT_DIR/xiaomi_mt6899_common.dtb, keeping existing images/mt6899.dtb"
     fi
     if [ -f "$DT_DIR/klee.dtb" ]; then
-        "$MKDTIMG" create dtbo.img --page_size=2048 "$DT_DIR/klee.dtb" >/dev/null \
-            && info "Wrote dtbo.img" \
-            || error "Failed to create dtbo.img"
+        "$MKDTIMG" create images/dtbo.img --page_size=2048 "$DT_DIR/klee.dtb" >/dev/null \
+            && info "Wrote images/dtbo.img" \
+            || error "Failed to create images/dtbo.img"
     else
-        warn "Missing $DT_DIR/klee.dtb, keeping existing dtbo.img"
+        warn "Missing $DT_DIR/klee.dtb, keeping existing images/dtbo.img"
     fi
 fi
 
